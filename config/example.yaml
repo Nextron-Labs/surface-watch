@@ -1,0 +1,169 @@
+project:
+  name: "Example External Surface Watch"
+  database_path: "./surface-watch.sqlite3"
+  log_level: "INFO"
+
+scope:
+  domains:
+    - "example.com"
+    - "example.org"
+
+  explicit_hosts:
+    - "vpn.example.com"
+    - "mail.example.com"
+
+  explicit_ips:
+    - "203.0.113.10"
+
+  excluded_hosts:
+    - "do-not-scan.example.com"
+
+  excluded_ips:
+    - "203.0.113.99"
+
+discovery:
+  enabled: true
+
+  dns_record_types:
+    - "A"
+    - "AAAA"
+    - "CNAME"
+    - "MX"
+    - "NS"
+    - "TXT"
+    - "SRV"
+
+  include_mx_hosts: true
+  include_ns_hosts: true
+  include_srv_hosts: true
+
+  brute_force_subdomains:
+    enabled: false
+    wordlist_path: "./wordlists/subdomains-small.txt"
+
+  passive_sources:
+    enabled: false
+
+scanning:
+  enabled: true
+
+  nmap_path: "nmap"
+  scan_mode: "full_tcp"
+
+  ports:
+    tcp: "1-65535"
+    udp: ""
+
+  timing:
+    template: "T3"
+    host_timeout: "30m"
+    max_retries: 3
+
+  service_detection:
+    enabled: true
+    version_intensity: 5
+
+  os_detection:
+    enabled: false
+
+  default_args:
+    - "-Pn"
+    - "--open"
+
+  extra_args: []
+
+change_detection:
+  compare_against: "previous_successful_scan"
+
+  notify_on:
+    new_host: true
+    disappeared_host: false
+    new_ip_for_host: true
+    removed_ip_from_host: false
+    new_open_port: true
+    closed_port: false
+    service_changed: false
+    product_changed: false
+    version_changed: false
+    product_version_changed: false
+    host_scan_failed: true
+    host_scan_recovered: true
+
+  severity:
+    new_host: "medium"
+    disappeared_host: "low"
+    new_ip_for_host: "medium"
+    removed_ip_from_host: "low"
+    new_open_port: "high"
+    closed_port: "info"
+    service_changed: "medium"
+    product_changed: "low"
+    version_changed: "low"
+    product_version_changed: "low"
+    host_scan_failed: "medium"
+    host_scan_recovered: "info"
+
+notifications:
+  enabled: true
+
+  minimum_severity: "medium"
+
+  providers:
+    slack:
+      enabled: false
+      webhook_url_env: "SLACK_WEBHOOK_URL"
+
+    teams:
+      enabled: false
+      webhook_url_env: "TEAMS_WEBHOOK_URL"
+
+    discord:
+      enabled: false
+      webhook_url_env: "DISCORD_WEBHOOK_URL"
+
+  message:
+    include_full_diff: true
+    include_scan_id: true
+    include_timestamp: true
+    include_summary: true
+
+risk_policy:
+  risky_ports:
+    tcp:
+      21: "medium"
+      22: "medium"
+      23: "high"
+      25: "medium"
+      135: "critical"
+      139: "critical"
+      445: "critical"
+      3389: "critical"
+      5432: "high"
+      5900: "high"
+      6379: "critical"
+      9200: "critical"
+      9300: "critical"
+      11211: "critical"
+      1433: "high"
+      1521: "high"
+      27017: "critical"
+      3306: "high"
+
+  service_keywords:
+    database:
+      severity: "high"
+      keywords:
+        - "mysql"
+        - "postgres"
+        - "mongodb"
+        - "redis"
+        - "mssql"
+        - "oracle"
+
+    remote_access:
+      severity: "high"
+      keywords:
+        - "rdp"
+        - "vnc"
+        - "telnet"
+        - "ssh"

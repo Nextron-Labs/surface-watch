@@ -216,3 +216,9 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# surface-watch runtime files
+*.sqlite3
+*.sqlite3-journal
+config.yaml
+config/nextron.yaml
