@@ -43,6 +43,17 @@ discovery:
 
   passive_sources:
     enabled: false
+    dnsdumpster:
+      enabled: false
+      api_key_env: "DNSDUMPSTER_API_KEY"
+      timeout_seconds: 15.0
+      min_interval_seconds: 2.0
+      max_pages: 1
+      restrict_to_domain_suffix: true
+      include_a_records: true
+      include_cname_records: true
+      include_mx_hosts: false
+      include_ns_hosts: false
 
 scanning:
   enabled: true

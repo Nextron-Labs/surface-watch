@@ -29,6 +29,18 @@ def test_parse_config_normalizes_hosts_and_paths(tmp_path: Path) -> None:
                     }
                 },
             },
+            "discovery": {
+                "passive_sources": {
+                    "enabled": True,
+                    "dnsdumpster": {
+                        "enabled": True,
+                        "api_key_env": "CUSTOM_DNSDUMPSTER_KEY",
+                        "max_pages": 1,
+                        "restrict_to_domain_suffix": True,
+                        "include_mx_hosts": False,
+                    },
+                }
+            },
         },
         base_dir=tmp_path,
     )
@@ -40,6 +52,11 @@ def test_parse_config_normalizes_hosts_and_paths(tmp_path: Path) -> None:
     assert config.scope.excluded_hosts == ["do-not-scan.example.com"]
     assert config.change_detection.notify_on["new_open_port"] is True
     assert config.change_detection.notify_on["product_changed"] is False
+    assert config.discovery.passive_sources.enabled is True
+    assert config.discovery.passive_sources.dnsdumpster is not None
+    assert config.discovery.passive_sources.dnsdumpster.enabled is True
+    assert config.discovery.passive_sources.dnsdumpster.api_key_env == "CUSTOM_DNSDUMPSTER_KEY"
+    assert config.discovery.passive_sources.dnsdumpster.max_pages == 1
     assert config.risk_policy.risky_ports["tcp"][3389] == "critical"
     assert config.risk_policy.service_keywords["remote_access"].keywords == ["rdp", "ssh"]
 

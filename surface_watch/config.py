@@ -137,6 +137,17 @@ discovery:
 
   passive_sources:
     enabled: false
+    dnsdumpster:
+      enabled: false
+      api_key_env: "DNSDUMPSTER_API_KEY"
+      timeout_seconds: 15.0
+      min_interval_seconds: 2.0
+      max_pages: 1
+      restrict_to_domain_suffix: true
+      include_a_records: true
+      include_cname_records: true
+      include_mx_hosts: false
+      include_ns_hosts: false
 
 scanning:
   enabled: true
@@ -287,8 +298,23 @@ class BruteForceSubdomainsConfig:
 
 
 @dataclass(slots=True)
+class DNSDumpsterConfig:
+    enabled: bool = False
+    api_key_env: str = "DNSDUMPSTER_API_KEY"
+    timeout_seconds: float = 15.0
+    min_interval_seconds: float = 2.0
+    max_pages: int = 1
+    restrict_to_domain_suffix: bool = True
+    include_a_records: bool = True
+    include_cname_records: bool = True
+    include_mx_hosts: bool = False
+    include_ns_hosts: bool = False
+
+
+@dataclass(slots=True)
 class PassiveSourcesConfig:
     enabled: bool = False
+    dnsdumpster: DNSDumpsterConfig | None = None
 
 
 @dataclass(slots=True)
@@ -432,6 +458,7 @@ def parse_config_data(data: dict[str, Any], base_dir: Path | None = None) -> Sur
 
     brute_force_section = dict(discovery_section.get("brute_force_subdomains", {}))
     passive_sources_section = dict(discovery_section.get("passive_sources", {}))
+    dnsdumpster_section = dict(passive_sources_section.get("dnsdumpster", {}))
     discovery = DiscoveryConfig(
         enabled=bool(discovery_section.get("enabled", True)),
         dns_record_types=_normalize_record_types(
@@ -447,7 +474,27 @@ def parse_config_data(data: dict[str, Any], base_dir: Path | None = None) -> Sur
             ),
         ),
         passive_sources=PassiveSourcesConfig(
-            enabled=bool(passive_sources_section.get("enabled", False))
+            enabled=bool(passive_sources_section.get("enabled", False)),
+            dnsdumpster=DNSDumpsterConfig(
+                enabled=bool(dnsdumpster_section.get("enabled", False)),
+                api_key_env=str(
+                    dnsdumpster_section.get("api_key_env", "DNSDUMPSTER_API_KEY")
+                ).strip(),
+                timeout_seconds=float(dnsdumpster_section.get("timeout_seconds", 15.0)),
+                min_interval_seconds=float(
+                    dnsdumpster_section.get("min_interval_seconds", 2.0)
+                ),
+                max_pages=int(dnsdumpster_section.get("max_pages", 1)),
+                restrict_to_domain_suffix=bool(
+                    dnsdumpster_section.get("restrict_to_domain_suffix", True)
+                ),
+                include_a_records=bool(dnsdumpster_section.get("include_a_records", True)),
+                include_cname_records=bool(
+                    dnsdumpster_section.get("include_cname_records", True)
+                ),
+                include_mx_hosts=bool(dnsdumpster_section.get("include_mx_hosts", False)),
+                include_ns_hosts=bool(dnsdumpster_section.get("include_ns_hosts", False)),
+            ),
         ),
     )
 

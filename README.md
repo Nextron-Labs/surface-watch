@@ -97,6 +97,17 @@ scope:
   excluded_ips:
     - "203.0.113.99"
 
+discovery:
+  enabled: true
+  passive_sources:
+    enabled: false
+    dnsdumpster:
+      enabled: false
+      api_key_env: "DNSDUMPSTER_API_KEY"
+      min_interval_seconds: 2.0
+      max_pages: 1
+      restrict_to_domain_suffix: true
+
 scanning:
   enabled: true
   nmap_path: "nmap"
@@ -122,6 +133,7 @@ notifications:
 - explicit hosts
 - explicit IPs
 - optional MX, NS, and SRV-derived hosts
+- optional passive discovery sources such as DNSDumpster
 
 Rules:
 
@@ -130,8 +142,11 @@ Rules:
 - Exclusions are applied after discovery completes.
 - Discovery does not imply uncontrolled expansion of scope. Only configured domains, explicit hosts, explicit IPs, and DNS-derived results from those configured inputs are considered.
 - The tool does not assume one hostname maps to one IP, or one IP maps to one hostname.
+- DNSDumpster is disabled by default and requires an API key provided via `DNSDUMPSTER_API_KEY`.
+- The DNSDumpster integration follows the published API limit of one request every two seconds and defaults to `max_pages: 1` to avoid burning free-tier quota during routine development.
+- DNSDumpster results are restricted to the configured domain suffix by default, so third-party MX or NS infrastructure is not pulled into scan scope unless you explicitly relax that control.
 
-The first version focuses on normal DNS discovery. Passive sources are modeled in config but intentionally left disabled by default.
+The first version still treats normal DNS discovery as the primary mechanism. Passive discovery is additive and opt-in.
 
 ## How Scanning Works
 
@@ -325,6 +340,14 @@ No notifications sent
 - confirm the provider is enabled in config
 - confirm the referenced environment variable is set
 - run `surface-watch test-notification --config config.yaml`
+
+DNSDumpster passive discovery returns no results
+
+- confirm `discovery.passive_sources.enabled: true`
+- confirm `discovery.passive_sources.dnsdumpster.enabled: true`
+- confirm the `DNSDUMPSTER_API_KEY` environment variable is set
+- remember that free-tier use is rate-limited to one request every two seconds and limited in returned records
+- if you need external MX or NS hosts, check whether `restrict_to_domain_suffix` is filtering them on purpose
 
 Unexpected service-change noise
 
