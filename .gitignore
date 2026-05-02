@@ -221,4 +221,7 @@ __marimo__/
 *.sqlite3
 *.sqlite3-journal
 config.yaml
-config/nextron.yaml
+config/*.yaml
+!config/example.yaml
+config/*.yml
+!config/example.yml
