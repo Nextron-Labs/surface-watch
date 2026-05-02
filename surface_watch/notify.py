@@ -171,7 +171,10 @@ def _send_to_provider(provider_name: str, webhook_url: str, message: str) -> boo
     http_request = request.Request(
         webhook_url,
         data=body,
-        headers={"Content-Type": "application/json"},
+        headers={
+            "Content-Type": "application/json",
+            "User-Agent": "surface-watch/0.1.0",
+        },
         method="POST",
     )
     try:
