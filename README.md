@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/surface-watch.png" alt="surface-watch logo" width="240">
+  <img src="docs/surface-watch.png" alt="surface-watch logo">
 </p>
 
 # surface-watch
