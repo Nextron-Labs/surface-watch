@@ -149,7 +149,10 @@ activemq-data/
 
 # Environments
 .env
+.env.*
 .envrc
+*.env
+*.env.*
 .venv
 env/
 venv/
@@ -220,6 +223,7 @@ __marimo__/
 # surface-watch runtime files
 *.sqlite3
 *.sqlite3-journal
+surface-watch.env
 config.yaml
 config/*.yaml
 !config/example.yaml

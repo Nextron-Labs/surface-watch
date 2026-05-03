@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="docs/surface-watch.png" alt="surface-watch logo" width="240">
+</p>
+
 # surface-watch
 
 `surface-watch` monitors the authorized external attack surface of an organization over time.
