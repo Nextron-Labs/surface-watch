@@ -176,12 +176,15 @@ Passive provider behavior:
 - Unresolvable passive candidates are not scanned.
 - One passive provider failing does not discard results from the other successful providers.
 
-Provider notes:
+## Passive Discovery Providers
 
-- DNSDumpster is disabled by default and requires `DNSDUMPSTER_API_KEY`.
-- Chaos is disabled by default and requires `PDCP_API_KEY`.
-- OTX is disabled by default and requires `OTX_API_KEY`.
-- `surface-watch` does not log API key values.
+`surface-watch` supports three optional passive discovery providers. All are disabled by default and require an API key.
+
+- `DNSDumpster`: DNS and attack-surface research service for finding domain-related DNS records, infrastructure, and related hosts. Website: [dnsdumpster.com](https://dnsdumpster.com/). Account and API setup: [dnsdumpster.com/developer](https://dnsdumpster.com/developer/). Environment variable: `DNSDUMPSTER_API_KEY`.
+- `ProjectDiscovery Chaos`: Internet-scale DNS dataset and API for subdomain discovery from ProjectDiscovery. Website: [chaos.projectdiscovery.io](https://chaos.projectdiscovery.io/). Account and API-key setup: [cloud.projectdiscovery.io](https://cloud.projectdiscovery.io/) and [Chaos API key docs](https://chaos.projectdiscovery.io/docs/api-key). Environment variable: `PDCP_API_KEY`.
+- `AlienVault / LevelBlue OTX`: Open threat-intelligence community and API that can contribute passive DNS and hostname data useful for broader hostname discovery. Website: [LevelBlue Open Threat Exchange](https://levelblue.com/open-threat-exchange) and [OTX portal](https://otx.alienvault.com/). Account setup: [OTX sign-up](https://otx.alienvault.com/accounts/signup/). Environment variable: `OTX_API_KEY`.
+
+`surface-watch` does not log API key values.
 
 The tool does not assume one hostname maps to one IP, or one IP maps to one hostname. Discovery builds a candidate set first, then scanning operates only on the final unique in-scope target set.
 

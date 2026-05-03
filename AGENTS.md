@@ -39,11 +39,13 @@ The first round should usually ask only these things:
 
 1. Which root domains should be monitored?
 2. Which known public hosts, public IPs, or important external assets should be added because auto-discovery may miss them?
-3. Are there any hosts or IPs under those domains that are authorized but should still be excluded from scanning?
-4. How often should scans run? Remind the user that a full `1-65535` baseline can take hours.
-5. Which webhook destination should be used, and which passive discovery providers should be enabled if the user already has API keys?
+3. How often should scans run? Remind the user that a full `1-65535` baseline can take hours.
+4. Which webhook destination should be used?
+5. Which passive discovery providers should be enabled if the user already has API keys?
 
-If the user gives no extra hosts, IPs, exclusions, passive providers, or webhook choices, assume `none for now` and continue with a minimal baseline setup.
+If the user gives no extra hosts, IPs, passive providers, or webhook choices, assume `none for now` and continue with a minimal baseline setup.
+
+Do not ask the user for exclusions before the first discovery review unless they already volunteer known exclusions on their own. In most setups, exclusions should be decided after the agent shows the discovered host list.
 
 Do not ask about:
 
@@ -63,9 +65,11 @@ Use something like this:
 > 
 > 1. Which root domains should be monitored?
 > 2. Which known public hosts or public IPs should be added because discovery may miss them?
-> 3. Anything under that scope that should be excluded from scanning?
-> 4. How often should scans run? Full `1-65535` scans can take hours, so conservative cadence is safer at first.
-> 5. Which webhook destination should I configure, and do you already have any passive discovery API keys for `DNSDumpster`, `Chaos`, or `OTX`?
+> 3. How often should scans run? Full `1-65535` scans can take hours, so conservative cadence is safer at first.
+> 4. Which webhook destination should I configure?
+> 5. Do you already have any passive discovery API keys for `DNSDumpster`, `Chaos`, or `OTX`, or should I leave passive discovery off for now?
+>
+> After that I’ll run discovery, show you the discovered hosts, and only then ask whether anything should be excluded before scanning.
 
 Keep the tone compact. Do not expand that into a multi-section interview unless the user explicitly asks for a detailed planning pass.
 
@@ -92,14 +96,12 @@ Ask:
 
 - Which externally reachable hosts are known but might not be discovered from normal DNS expansion?
 - Which public IPs should always be scanned even if they are not tied to a current hostname?
-- Are there any exclusions that should be applied from the start?
 - If the user mentions network segments, ask for the exact public IPs or hostnames that should be monitored, because the current config is not CIDR-driven.
 
-If the user gives no additions or exclusions, assume:
+If the user gives no additions, assume:
 
 - `scope.explicit_hosts: []`
 - `scope.explicit_ips: []`
-- no exclusions
 
 Explain briefly:
 
@@ -111,8 +113,6 @@ Map answers into:
 
 - `scope.explicit_hosts`
 - `scope.explicit_ips`
-- `scope.excluded_hosts`
-- `scope.excluded_ips`
 
 ### 3. Scan Frequency and Scheduler Safety
 
@@ -182,7 +182,31 @@ surface-watch discover --config config.yaml
 
 If discovery returns less than the user expects, ask again for explicit hosts and IPs instead of pretending passive discovery is comprehensive.
 
-### 5. Webhook Notifications
+### 5. Discovery Review and Exclusions
+
+Before any baseline scan, run discovery and review the results with the user.
+
+Agent actions:
+
+1. Run:
+
+```bash
+surface-watch discover --config config.yaml
+```
+
+2. Show the discovered hosts and IPs to the user in a compact way.
+3. Ask which discovered hosts or IPs should be excluded before scanning starts.
+4. Explain that this is the right moment to exclude third-party hosted services, documentation platforms, status pages, SaaS endpoints, CDN-backed names, or anything else that is not authorized for scanning.
+5. If the user wants to exclude items, add them to:
+
+- `scope.excluded_hosts`
+- `scope.excluded_ips`
+
+6. If the user does not want exclusions, proceed without them.
+
+Do not force the user to name exclusions before discovery output is available. If they already know some exclusions in advance, you can record them early, but the normal workflow is discovery first, exclusion review second.
+
+### 6. Webhook Notifications
 
 Ask:
 
@@ -281,12 +305,14 @@ If the user does not have a clean explicit-IP-only target for this drill, use on
 Use this order unless the user explicitly wants something different:
 
 1. Confirm authorization and state the defaults you will use.
-2. Ask the compact first-round questions about domains, known coverage gaps, exclusions, scan cadence, webhooks, and optional passive providers.
-3. Configure passive discovery providers, if any, and test with `discover`.
-4. Configure webhook destinations and test with `test-notification`.
-5. Run the first baseline scan.
-6. Set up `cron` or `systemd` only after the baseline and notification path are working.
-7. Offer the controlled notification drill.
+2. Ask the compact first-round questions about domains, known coverage gaps, scan cadence, webhooks, and optional passive providers.
+3. Configure passive discovery providers, if any.
+4. Run `discover` and review the discovered host list with the user.
+5. Collect exclusions only after the discovery review, unless the user already knew them in advance.
+6. Configure webhook destinations and test with `test-notification`.
+7. Run the first baseline scan.
+8. Set up `cron` or `systemd` only after the baseline and notification path are working.
+9. Offer the controlled notification drill.
 
 ## Helpful Project References
 
