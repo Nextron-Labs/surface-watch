@@ -6,7 +6,7 @@
 
 `surface-watch` monitors the authorized external attack surface of an organization over time.
 
-It discovers hosts for configured domains, resolves their IPs, scans externally reachable ports with `nmap`, stores historical results in SQLite, detects meaningful changes between scans, and sends grouped webhook notifications to Slack, Microsoft Teams, or Discord.
+It builds scan scope from known FQDNs and IPs plus automatic discovery for configured root domains, resolves candidate hosts, scans externally reachable ports with `nmap`, stores historical results in SQLite, detects meaningful changes between scans, and sends grouped webhook notifications to Slack, Microsoft Teams, or Discord.
 
 ## What the tool does
 
@@ -50,6 +50,8 @@ pip install -e .
 - Python `3.11+`
 - `nmap` installed and available in `PATH`
 
+If an AI agent is helping with first-time deployment or system setup, start with [AGENTS.md](AGENTS.md). It tells the agent which questions to ask about scope, scheduling, passive discovery, webhook setup, baselining, and validation.
+
 Example on macOS with Homebrew:
 
 ```bash
@@ -66,12 +68,15 @@ sudo apt-get install nmap
 
 1. Create a config and initialize the database.
 2. Edit the config to match your authorized scope.
-3. Run a baseline scan.
-4. Run the next scan later to detect changes.
+3. Run discovery first and review the discovered host list.
+4. Add exclusions for anything that is not authorized for scanning.
+5. Run a baseline scan.
+6. Run the next scan later to detect changes.
 
 ```bash
 surface-watch init
 $EDITOR config.yaml
+surface-watch discover --config config.yaml
 surface-watch scan --config config.yaml
 surface-watch list-scans --config config.yaml
 surface-watch show-changes --config config.yaml --scan-id 2
@@ -111,6 +116,12 @@ discovery:
       min_interval_seconds: 2.0
       max_pages: 1
       restrict_to_domain_suffix: true
+    chaos:
+      enabled: false
+      api_key_env: "PDCP_API_KEY"
+    otx:
+      enabled: false
+      api_key_env: "OTX_API_KEY"
 
 scanning:
   enabled: true
@@ -131,26 +142,78 @@ notifications:
 
 ## How Discovery Works
 
-`surface-watch` builds scan targets from:
+`surface-watch` has two ways to define scan targets:
+
+1. Manual scope definition with explicit FQDNs and IP addresses.
+2. Automatic discovery for configured root domains.
+
+Manual scope definition is useful when you already know the important assets. Automatic discovery is essential in most real-world use cases because most teams do not have a complete, current inventory of every externally visible hostname under their domains.
+
+Normal DNS lookups rarely show the full external picture. Many hosts are only visible through passive DNS, historical DNS data, certificate transparency, and other external intelligence sources. Discovery is therefore one of the central parts of `surface-watch`, not a minor add-on.
+
+Current discovery inputs:
 
 - configured domains
 - explicit hosts
 - explicit IPs
 - optional MX, NS, and SRV-derived hosts
-- optional passive discovery sources such as DNSDumpster
+- optional passive discovery providers: DNSDumpster, ProjectDiscovery Chaos, and AlienVault / LevelBlue OTX
 
-Rules:
+Passive discovery is especially important because the default goal is not to guess hostnames with noisy brute force. DNS brute forcing is intentionally not the preferred default path because it is noisy, expensive, incomplete, and can lead to rate limiting or blocking. Passive intelligence sources provide broader coverage with less direct probing.
 
-- Hostnames are normalized to lowercase.
-- Duplicates are removed.
-- Exclusions are applied after discovery completes.
-- Discovery does not imply uncontrolled expansion of scope. Only configured domains, explicit hosts, explicit IPs, and DNS-derived results from those configured inputs are considered.
-- The tool does not assume one hostname maps to one IP, or one IP maps to one hostname.
-- DNSDumpster is disabled by default and requires an API key provided via `DNSDUMPSTER_API_KEY`.
-- The DNSDumpster integration follows the published API limit of one request every two seconds and defaults to `max_pages: 1` to avoid burning free-tier quota during routine development.
-- DNSDumpster results are restricted to the configured domain suffix by default, so third-party MX or NS infrastructure is not pulled into scan scope unless you explicitly relax that control.
+Passive provider behavior:
 
-The first version still treats normal DNS discovery as the primary mechanism. Passive discovery is additive and opt-in.
+- Passive providers are optional and can be enabled independently.
+- Multiple passive providers can be enabled in the same run.
+- Each enabled provider is queried for each configured root domain.
+- Passive results are treated as candidate hostnames, not confirmed live assets.
+- Candidate hostnames are normalized before merge, including wildcard cleanup such as `*.app.example.com`.
+- Out-of-scope hostnames are dropped.
+- Results from all providers are merged and deduplicated before scanning.
+- A hostname reported by multiple providers is scanned only once per unique resolved target.
+- Source attribution is preserved so you can still see which provider or providers reported a hostname.
+- Exclusions are applied after discovery completes and before scanning starts.
+- Unresolvable passive candidates are not scanned.
+- One passive provider failing does not discard results from the other successful providers.
+
+Provider notes:
+
+- DNSDumpster is disabled by default and requires `DNSDUMPSTER_API_KEY`.
+- Chaos is disabled by default and requires `PDCP_API_KEY`.
+- OTX is disabled by default and requires `OTX_API_KEY`.
+- `surface-watch` does not log API key values.
+
+The tool does not assume one hostname maps to one IP, or one IP maps to one hostname. Discovery builds a candidate set first, then scanning operates only on the final unique in-scope target set.
+
+## First Discovery Run and Scope Review
+
+Treat the first automated discovery run as a scope-building and scope-cleanup step.
+
+Passive discovery can find hostnames under your domain that point to systems operated by third parties, SaaS platforms, CDNs, email providers, documentation platforms, status page providers, hosting providers, customer portals, or other external services.
+
+Common examples:
+
+- `documentation.example.com` on a hosted documentation platform
+- `status.example.com` on a status page provider
+- `shop.example.com` on an e-commerce provider
+- `support.example.com` on a ticketing or SaaS platform
+- `blog.example.com` on an external CMS
+- `assets.example.com` on a CDN
+- mail-related hosts operated by an email provider
+
+Those systems may carry your domain name, but they may not be owned, operated, or security-managed by you.
+
+Important review rules:
+
+- Passive discovery results are candidate assets, not automatically confirmed assets.
+- Passive records may be stale, wrong, incomplete, or no longer active.
+- Some discovered hosts may not be in your operational responsibility.
+- A third-party provider may already have its own security monitoring and scanning restrictions.
+- The provider's terms of service may prohibit port scanning or automated scanning.
+- Review the discovered host list after the first run.
+- Add exclusions for any host or IP that should not be scanned.
+- Enable regular recurring scans only after the scope has been reviewed and cleaned up.
+- You are responsible for ensuring that every scanned system is authorized for scanning.
 
 ## How Scanning Works
 
@@ -352,6 +415,24 @@ DNSDumpster passive discovery returns no results
 - confirm the `DNSDUMPSTER_API_KEY` environment variable is set
 - remember that free-tier use is rate-limited to one request every two seconds and limited in returned records
 - if you need external MX or NS hosts, check whether `restrict_to_domain_suffix` is filtering them on purpose
+
+Chaos passive discovery returns no results
+
+- confirm `discovery.passive_sources.enabled: true`
+- confirm `discovery.passive_sources.chaos.enabled: true`
+- confirm the `PDCP_API_KEY` environment variable is set
+
+OTX passive discovery returns no results
+
+- confirm `discovery.passive_sources.enabled: true`
+- confirm `discovery.passive_sources.otx.enabled: true`
+- confirm the `OTX_API_KEY` environment variable is set
+
+Passive discovery found unexpected hosts
+
+- this can happen with historical passive DNS or third-party hosted subdomains
+- review the discovered host list before enabling regular scans
+- add exclusions for anything not owned or not authorized for scanning
 
 Unexpected service-change noise
 

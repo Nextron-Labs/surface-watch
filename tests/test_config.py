@@ -39,6 +39,14 @@ def test_parse_config_normalizes_hosts_and_paths(tmp_path: Path) -> None:
                         "restrict_to_domain_suffix": True,
                         "include_mx_hosts": False,
                     },
+                    "chaos": {
+                        "enabled": True,
+                        "api_key_env": "CUSTOM_CHAOS_KEY",
+                    },
+                    "otx": {
+                        "enabled": True,
+                        "api_key_env": "CUSTOM_OTX_KEY",
+                    },
                 }
             },
         },
@@ -57,6 +65,12 @@ def test_parse_config_normalizes_hosts_and_paths(tmp_path: Path) -> None:
     assert config.discovery.passive_sources.dnsdumpster.enabled is True
     assert config.discovery.passive_sources.dnsdumpster.api_key_env == "CUSTOM_DNSDUMPSTER_KEY"
     assert config.discovery.passive_sources.dnsdumpster.max_pages == 1
+    assert config.discovery.passive_sources.chaos is not None
+    assert config.discovery.passive_sources.chaos.enabled is True
+    assert config.discovery.passive_sources.chaos.api_key_env == "CUSTOM_CHAOS_KEY"
+    assert config.discovery.passive_sources.otx is not None
+    assert config.discovery.passive_sources.otx.enabled is True
+    assert config.discovery.passive_sources.otx.api_key_env == "CUSTOM_OTX_KEY"
     assert config.risk_policy.risky_ports["tcp"][3389] == "critical"
     assert config.risk_policy.service_keywords["remote_access"].keywords == ["rdp", "ssh"]
 

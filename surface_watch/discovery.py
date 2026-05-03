@@ -1,226 +1,28 @@
 from __future__ import annotations
 
-import json
 import logging
-import os
-import time
-from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Protocol
-from urllib import error, parse, request
 
 import dns.exception
 import dns.resolver
 
-from surface_watch import __version__
-from surface_watch.config import DNSDumpsterConfig, SurfaceWatchConfig
+from surface_watch.config import SurfaceWatchConfig
 from surface_watch.models import DiscoveredTarget, normalize_hostname
+from surface_watch.passive_sources import (
+    ChaosClient,
+    DNSDumpsterClient,
+    OTXClient,
+    PassiveDiscoveryProvider,
+)
 
 LOGGER = logging.getLogger(__name__)
-
-
-class PassiveDiscoveryClient(Protocol):
-    def discover_domain_targets(
-        self,
-        domain: str,
-        resolver: dns.resolver.Resolver,
-    ) -> list[DiscoveredTarget]: ...
-
-
-class DNSDumpsterClient:
-    def __init__(
-        self,
-        config: DNSDumpsterConfig,
-        *,
-        sleep: Callable[[float], None] = time.sleep,
-        monotonic: Callable[[], float] = time.monotonic,
-    ) -> None:
-        self.config = config
-        self._sleep = sleep
-        self._monotonic = monotonic
-        self._last_request_at: float | None = None
-
-    def discover_domain_targets(
-        self,
-        domain: str,
-        resolver: dns.resolver.Resolver,
-    ) -> list[DiscoveredTarget]:
-        api_key = os.getenv(self.config.api_key_env, "").strip()
-        if not api_key:
-            LOGGER.warning(
-                "DNSDumpster is enabled but the environment variable %s is unset; skipping.",
-                self.config.api_key_env,
-            )
-            return []
-
-        targets: list[DiscoveredTarget] = []
-        for page in range(1, max(self.config.max_pages, 1) + 1):
-            payload = self._request_domain_page(domain, page, api_key)
-            if payload is None:
-                break
-
-            page_targets = self._extract_targets_from_payload(payload, domain, resolver)
-            targets.extend(page_targets)
-
-            if page >= self.config.max_pages:
-                break
-            if not self._payload_has_host_records(payload):
-                break
-
-        return _deduplicate_target_list(targets)
-
-    def _request_domain_page(
-        self,
-        domain: str,
-        page: int,
-        api_key: str,
-    ) -> dict[str, Any] | None:
-        self._enforce_rate_limit()
-
-        url = f"https://api.dnsdumpster.com/domain/{parse.quote(domain, safe='')}"
-        if page > 1:
-            url = f"{url}?page={page}"
-
-        http_request = request.Request(
-            url,
-            headers={
-                "Accept": "application/json",
-                "User-Agent": f"surface-watch/{__version__}",
-                "X-API-Key": api_key,
-            },
-            method="GET",
-        )
-
-        try:
-            with request.urlopen(http_request, timeout=self.config.timeout_seconds) as response:
-                payload = json.loads(response.read().decode("utf-8"))
-        except error.HTTPError as exc:
-            if exc.code == 429:
-                LOGGER.warning(
-                    "DNSDumpster rate limit exceeded for %s; "
-                    "skipping the rest of passive discovery.",
-                    domain,
-                )
-            elif exc.code in {401, 403}:
-                LOGGER.warning(
-                    "DNSDumpster rejected the API key for %s; skipping passive discovery.",
-                    domain,
-                )
-            else:
-                LOGGER.warning(
-                    "DNSDumpster request for %s failed with HTTP %s.",
-                    domain,
-                    exc.code,
-                )
-            return None
-        except (error.URLError, TimeoutError, ValueError, OSError) as exc:
-            LOGGER.warning("DNSDumpster request for %s failed: %s", domain, exc)
-            return None
-        finally:
-            self._last_request_at = self._monotonic()
-
-        if not isinstance(payload, dict):
-            LOGGER.warning("DNSDumpster returned an unexpected payload for %s.", domain)
-            return None
-        return payload
-
-    def _extract_targets_from_payload(
-        self,
-        payload: dict[str, Any],
-        domain: str,
-        resolver: dns.resolver.Resolver,
-    ) -> list[DiscoveredTarget]:
-        targets: list[DiscoveredTarget] = []
-        for section_name, include_section in (
-            ("a", self.config.include_a_records),
-            ("cname", self.config.include_cname_records),
-            ("mx", self.config.include_mx_hosts),
-            ("ns", self.config.include_ns_hosts),
-        ):
-            if not include_section:
-                continue
-            section_targets = self._extract_section_targets(
-                payload=payload,
-                section_name=section_name,
-                domain=domain,
-                resolver=resolver,
-            )
-            targets.extend(section_targets)
-
-        return _deduplicate_target_list(targets)
-
-    def _extract_section_targets(
-        self,
-        *,
-        payload: dict[str, Any],
-        section_name: str,
-        domain: str,
-        resolver: dns.resolver.Resolver,
-    ) -> list[DiscoveredTarget]:
-        entries = payload.get(section_name, [])
-        if not isinstance(entries, list):
-            return []
-
-        targets: list[DiscoveredTarget] = []
-        for entry in entries:
-            if not isinstance(entry, dict):
-                continue
-
-            hostname = normalize_hostname(
-                str(entry.get("host") or entry.get("name") or entry.get("domain") or "")
-            )
-            if hostname is None:
-                continue
-            if self.config.restrict_to_domain_suffix and not _hostname_within_domain(
-                hostname, domain
-            ):
-                continue
-
-            ips = _extract_dnsdumpster_ips(entry)
-            if ips:
-                for ip in ips:
-                    targets.append(
-                        DiscoveredTarget(
-                            hostname=hostname,
-                            ip=ip,
-                            source=f"dnsdumpster_{section_name}",
-                            parent_domain=domain,
-                            record_type=section_name.upper(),
-                        )
-                    )
-                continue
-
-            fallback_targets = _resolve_dnsdumpster_hostname(
-                resolver=resolver,
-                hostname=hostname,
-                domain=domain,
-                source=f"dnsdumpster_{section_name}",
-                record_type=section_name.upper(),
-            )
-            targets.extend(fallback_targets)
-
-        return targets
-
-    def _payload_has_host_records(self, payload: dict[str, Any]) -> bool:
-        for key in ("a", "cname", "mx", "ns"):
-            section = payload.get(key, [])
-            if isinstance(section, list) and section:
-                return True
-        return False
-
-    def _enforce_rate_limit(self) -> None:
-        if self._last_request_at is None:
-            return
-        elapsed = self._monotonic() - self._last_request_at
-        remaining = self.config.min_interval_seconds - elapsed
-        if remaining > 0:
-            self._sleep(remaining)
 
 
 def discover_targets(
     config: SurfaceWatchConfig,
     *,
-    dnsdumpster_client: PassiveDiscoveryClient | None = None,
+    dnsdumpster_client: PassiveDiscoveryProvider | None = None,
+    passive_providers: list[PassiveDiscoveryProvider] | None = None,
 ) -> list[DiscoveredTarget]:
     resolver = dns.resolver.Resolver()
     resolver.lifetime = 5.0
@@ -258,6 +60,7 @@ def discover_targets(
             resolver=resolver,
             config=config,
             dnsdumpster_client=dnsdumpster_client,
+            passive_providers=passive_providers,
         )
 
         if config.discovery.brute_force_subdomains.enabled:
@@ -280,20 +83,74 @@ def _discover_passive_targets(
     discovered: dict[tuple[str | None, str | None], DiscoveredTarget],
     resolver: dns.resolver.Resolver,
     config: SurfaceWatchConfig,
-    dnsdumpster_client: PassiveDiscoveryClient | None,
+    dnsdumpster_client: PassiveDiscoveryProvider | None,
+    passive_providers: list[PassiveDiscoveryProvider] | None,
 ) -> None:
     passive_sources = config.discovery.passive_sources
     if not passive_sources.enabled:
         return
 
-    dnsdumpster_config = passive_sources.dnsdumpster
-    if dnsdumpster_config is None or not dnsdumpster_config.enabled:
+    providers = passive_providers or _build_passive_providers(config, dnsdumpster_client)
+    if not providers:
         return
 
-    client = dnsdumpster_client or DNSDumpsterClient(dnsdumpster_config)
+    merged_candidates: dict[str, dict[str, set[str]]] = {}
     for domain in config.scope.domains:
-        for target in client.discover_domain_targets(domain, resolver):
-            _add_target(discovered, target)
+        for provider in providers:
+            try:
+                candidates = provider.discover_domain_candidates(domain)
+            except Exception as exc:  # noqa: BLE001
+                LOGGER.warning(
+                    "Passive provider %s failed for %s: %s",
+                    provider.__class__.__name__,
+                    domain,
+                    exc,
+                )
+                continue
+
+            for candidate in candidates:
+                normalized_hostname = _normalize_passive_hostname(candidate.hostname)
+                if normalized_hostname is None:
+                    continue
+                if not _hostname_within_domain(normalized_hostname, domain):
+                    continue
+
+                entry = merged_candidates.setdefault(
+                    normalized_hostname,
+                    {"sources": set(), "parent_domains": set()},
+                )
+                entry["sources"].add(candidate.source)
+                entry["parent_domains"].add(candidate.parent_domain)
+
+    for hostname, metadata in merged_candidates.items():
+        _add_host_addresses(
+            discovered=discovered,
+            resolver=resolver,
+            hostname=hostname,
+            source=",".join(sorted(metadata["sources"])),
+            parent_domain=",".join(sorted(metadata["parent_domains"])),
+        )
+
+
+def _build_passive_providers(
+    config: SurfaceWatchConfig,
+    dnsdumpster_client: PassiveDiscoveryProvider | None,
+) -> list[PassiveDiscoveryProvider]:
+    providers: list[PassiveDiscoveryProvider] = []
+    passive_sources = config.discovery.passive_sources
+
+    if dnsdumpster_client is not None:
+        providers.append(dnsdumpster_client)
+    elif passive_sources.dnsdumpster is not None and passive_sources.dnsdumpster.enabled:
+        providers.append(DNSDumpsterClient(passive_sources.dnsdumpster))
+
+    if passive_sources.chaos is not None and passive_sources.chaos.enabled:
+        providers.append(ChaosClient(passive_sources.chaos))
+
+    if passive_sources.otx is not None and passive_sources.otx.enabled:
+        providers.append(OTXClient(passive_sources.otx))
+
+    return providers
 
 
 def _discover_domain_targets(
@@ -504,43 +361,11 @@ def _brute_force_subdomains(
             )
 
 
-def _resolve_dnsdumpster_hostname(
-    *,
-    resolver: dns.resolver.Resolver,
-    hostname: str,
-    domain: str,
-    source: str,
-    record_type: str,
-) -> list[DiscoveredTarget]:
-    targets: list[DiscoveredTarget] = []
-    for lookup_record_type in ("A", "AAAA"):
-        for ip in _resolve_addresses(resolver, hostname, lookup_record_type):
-            targets.append(
-                DiscoveredTarget(
-                    hostname=hostname,
-                    ip=ip,
-                    source=source,
-                    parent_domain=domain,
-                    record_type=record_type,
-                )
-            )
-    return targets
-
-
-def _extract_dnsdumpster_ips(entry: dict[str, Any]) -> list[str]:
-    ip_entries = entry.get("ips", [])
-    if not isinstance(ip_entries, list):
-        return []
-
-    ips: list[str] = []
-    for ip_entry in ip_entries:
-        if isinstance(ip_entry, dict):
-            value = str(ip_entry.get("ip", "")).strip()
-        else:
-            value = str(ip_entry).strip()
-        if value:
-            ips.append(value)
-    return [ip for ip in dict.fromkeys(ips)]
+def _normalize_passive_hostname(value: str | None) -> str | None:
+    normalized = normalize_hostname(value)
+    while normalized and normalized.startswith("*."):
+        normalized = normalized[2:]
+    return normalized or None
 
 
 def _hostname_within_domain(hostname: str, domain: str) -> bool:
@@ -563,21 +388,16 @@ def _add_target(
     discovered: dict[tuple[str | None, str | None], DiscoveredTarget],
     target: DiscoveredTarget,
 ) -> None:
-    discovered.setdefault(target.identity, target)
+    existing = discovered.get(target.identity)
+    if existing is None:
+        discovered[target.identity] = target
+        return
 
+    merged_sources = list(dict.fromkeys([*existing.sources, *target.sources]))
+    existing.source = ",".join(merged_sources)
 
-def _deduplicate_target_list(targets: list[DiscoveredTarget]) -> list[DiscoveredTarget]:
-    deduplicated: dict[
-        tuple[str | None, str | None, str, str | None, str | None],
-        DiscoveredTarget,
-    ] = {}
-    for target in targets:
-        key = (
-            target.hostname,
-            target.ip,
-            target.source,
-            target.parent_domain,
-            target.record_type,
-        )
-        deduplicated.setdefault(key, target)
-    return list(deduplicated.values())
+    merged_parent_domains = list(dict.fromkeys([*existing.parent_domains, *target.parent_domains]))
+    existing.parent_domain = ",".join(merged_parent_domains) if merged_parent_domains else None
+
+    if existing.record_type is None and target.record_type is not None:
+        existing.record_type = target.record_type

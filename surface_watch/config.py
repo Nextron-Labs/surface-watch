@@ -148,6 +148,14 @@ discovery:
       include_cname_records: true
       include_mx_hosts: false
       include_ns_hosts: false
+    chaos:
+      enabled: false
+      api_key_env: "PDCP_API_KEY"
+      timeout_seconds: 15.0
+    otx:
+      enabled: false
+      api_key_env: "OTX_API_KEY"
+      timeout_seconds: 15.0
 
 scanning:
   enabled: true
@@ -312,9 +320,25 @@ class DNSDumpsterConfig:
 
 
 @dataclass(slots=True)
+class ChaosConfig:
+    enabled: bool = False
+    api_key_env: str = "PDCP_API_KEY"
+    timeout_seconds: float = 15.0
+
+
+@dataclass(slots=True)
+class OTXConfig:
+    enabled: bool = False
+    api_key_env: str = "OTX_API_KEY"
+    timeout_seconds: float = 15.0
+
+
+@dataclass(slots=True)
 class PassiveSourcesConfig:
     enabled: bool = False
     dnsdumpster: DNSDumpsterConfig | None = None
+    chaos: ChaosConfig | None = None
+    otx: OTXConfig | None = None
 
 
 @dataclass(slots=True)
@@ -459,6 +483,8 @@ def parse_config_data(data: dict[str, Any], base_dir: Path | None = None) -> Sur
     brute_force_section = dict(discovery_section.get("brute_force_subdomains", {}))
     passive_sources_section = dict(discovery_section.get("passive_sources", {}))
     dnsdumpster_section = dict(passive_sources_section.get("dnsdumpster", {}))
+    chaos_section = dict(passive_sources_section.get("chaos", {}))
+    otx_section = dict(passive_sources_section.get("otx", {}))
     discovery = DiscoveryConfig(
         enabled=bool(discovery_section.get("enabled", True)),
         dns_record_types=_normalize_record_types(
@@ -494,6 +520,16 @@ def parse_config_data(data: dict[str, Any], base_dir: Path | None = None) -> Sur
                 ),
                 include_mx_hosts=bool(dnsdumpster_section.get("include_mx_hosts", False)),
                 include_ns_hosts=bool(dnsdumpster_section.get("include_ns_hosts", False)),
+            ),
+            chaos=ChaosConfig(
+                enabled=bool(chaos_section.get("enabled", False)),
+                api_key_env=str(chaos_section.get("api_key_env", "PDCP_API_KEY")).strip(),
+                timeout_seconds=float(chaos_section.get("timeout_seconds", 15.0)),
+            ),
+            otx=OTXConfig(
+                enabled=bool(otx_section.get("enabled", False)),
+                api_key_env=str(otx_section.get("api_key_env", "OTX_API_KEY")).strip(),
+                timeout_seconds=float(otx_section.get("timeout_seconds", 15.0)),
             ),
         ),
     )

@@ -29,6 +29,47 @@ def normalize_hostname(value: str | None) -> str | None:
     return normalized.rstrip(".").lower()
 
 
+def normalize_csv_text(value: str | None) -> str | None:
+    normalized_items: list[str] = []
+    for part in (value or "").split(","):
+        normalized_part = normalize_optional_text(part)
+        if normalized_part is None:
+            continue
+        lowered = normalized_part.lower()
+        if lowered not in normalized_items:
+            normalized_items.append(lowered)
+    if not normalized_items:
+        return None
+    return ",".join(normalized_items)
+
+
+def normalize_csv_hostnames(value: str | None) -> str | None:
+    normalized_items: list[str] = []
+    for part in (value or "").split(","):
+        normalized_part = normalize_hostname(part)
+        if normalized_part is None:
+            continue
+        if normalized_part not in normalized_items:
+            normalized_items.append(normalized_part)
+    if not normalized_items:
+        return None
+    return ",".join(normalized_items)
+
+
+def split_csv_text(value: str | None) -> tuple[str, ...]:
+    normalized = normalize_csv_text(value)
+    if normalized is None:
+        return ()
+    return tuple(normalized.split(","))
+
+
+def split_csv_hostnames(value: str | None) -> tuple[str, ...]:
+    normalized = normalize_csv_hostnames(value)
+    if normalized is None:
+        return ()
+    return tuple(normalized.split(","))
+
+
 def is_ip_address(value: str) -> bool:
     try:
         ip_address(value)
@@ -48,14 +89,22 @@ class DiscoveredTarget:
     def __post_init__(self) -> None:
         self.hostname = normalize_hostname(self.hostname)
         self.ip = normalize_optional_text(self.ip)
-        self.source = self.source.strip().lower()
-        self.parent_domain = normalize_hostname(self.parent_domain)
+        self.source = normalize_csv_text(self.source) or ""
+        self.parent_domain = normalize_csv_hostnames(self.parent_domain)
         record_type = normalize_optional_text(self.record_type)
         self.record_type = record_type.upper() if record_type else None
 
     @property
     def identity(self) -> tuple[str | None, str | None]:
         return (self.hostname, self.ip)
+
+    @property
+    def sources(self) -> tuple[str, ...]:
+        return split_csv_text(self.source)
+
+    @property
+    def parent_domains(self) -> tuple[str, ...]:
+        return split_csv_hostnames(self.parent_domain)
 
 
 @dataclass(slots=True)

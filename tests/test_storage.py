@@ -37,8 +37,8 @@ def test_storage_round_trip(tmp_path: Path) -> None:
             DiscoveredTarget(
                 hostname="vpn.example.com",
                 ip="203.0.113.10",
-                source="explicit_host",
-                parent_domain=None,
+                source="chaos,dnsdumpster,otx",
+                parent_domain="example.com",
                 record_type="A",
             )
         ],
@@ -113,6 +113,8 @@ def test_storage_round_trip(tmp_path: Path) -> None:
     snapshot = load_scan_snapshot(database_path, first_scan_id)
     assert snapshot.status == "success"
     assert len(snapshot.targets) == 1
+    assert snapshot.targets[0].sources == ("chaos", "dnsdumpster", "otx")
+    assert snapshot.targets[0].parent_domains == ("example.com",)
     assert len(snapshot.host_results) == 1
     assert len(snapshot.port_findings) == 1
     assert snapshot.port_findings[0].product == "nginx"
