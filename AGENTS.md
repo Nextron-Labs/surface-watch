@@ -7,85 +7,145 @@ Use this workflow when the user asks you to deploy, configure, operationalize, o
 ## Primary Rules
 
 - Ask for authorization scope before any scan. `surface-watch` must only be used for domains, hosts, and IPs the user owns or is explicitly authorized to scan.
-- Ask questions before assuming scope, schedule, notification channels, or passive discovery providers.
+- Use a default-first workflow. Do not interrogate the user about routine environment choices that can be safely assumed.
+- Ask only for the decisions that materially affect scope, schedule, passive discovery, and notifications.
 - Do not put secrets directly into `config.yaml` unless the user explicitly asks for that. Prefer environment variables.
 - Warn the user that the default TCP scan covers `1-65535`, and a full baseline on a larger scope can take hours.
 - Make it clear that discovery is helpful but incomplete. The user must provide known public hosts and public IPs that passive discovery or DNS lookups may miss.
 - Current code supports passive discovery with `DNSDumpster`, `Chaos`, and `OTX`. It does not have a separate reverse-DNS account integration. If the user asks for reverse-DNS coverage, explain that limitation and collect extra explicit hosts or IPs instead.
 - The current config supports domains, explicit hosts, explicit IPs, excluded hosts, and excluded IPs. It does not have a first-class CIDR or network-segment field. If the user mentions network segments, ask them to translate those into specific public IPs or hostnames to monitor.
 
-## Required Setup Questions
+## Default-First Behavior
 
-Ask these questions before finalizing the system setup.
+Unless the user asks for something different, use these defaults without asking:
 
-### 1. System and Runtime
+- If the repository is already present, work from the current checkout.
+- If the repository still needs to be cloned, use `~/surface-watch` as the default install location for user-managed installs.
+- Use a project-local virtual environment at `.venv`.
+- Use `cron` as the default scheduler.
+- Use a project-local log file such as `./logs/surface-watch.log`.
+- Keep `notifications.minimum_severity` at `medium`.
+- Keep passive discovery disabled unless the user wants it and can provide the needed API key.
+- Store webhook URLs and API keys in a project-local env file such as `surface-watch.env`, with restrictive permissions, and load that file from the scheduler.
+- Detect whether `nmap` is installed instead of asking first. Only ask the user if the install path or package manager choice becomes a blocker.
 
-Ask:
+Do not ask the user to confirm these defaults one by one. State them briefly, then proceed unless the user objects.
 
-- Which operating system and version is this being installed on?
-- Where should the project live on disk?
-- Is `nmap` already installed and in `PATH`?
-- Should scheduling use `cron` or `systemd`? If the user explicitly asked for crontab setup, stay with `cron`.
-- Where should logs live?
-- Where should webhook and API-key environment variables be stored: shell profile, `.env` file loaded by the scheduler, or another secrets mechanism the user already uses?
+## Initial Question Limit
 
-### 2. Scan Frequency and Scheduler Safety
+In the first round, ask at most five setup questions. Combine related items instead of sending a long questionnaire.
 
-Ask:
+The first round should usually ask only these things:
 
-- How often should analysis run?
-- Does the user want a conservative baseline cadence first, then a faster cadence later?
+1. Which root domains should be monitored?
+2. Which known public hosts, public IPs, or important external assets should be added because auto-discovery may miss them?
+3. Are there any hosts or IPs under those domains that are authorized but should still be excluded from scanning?
+4. How often should scans run? Remind the user that a full `1-65535` baseline can take hours.
+5. Which webhook destination should be used, and which passive discovery providers should be enabled if the user already has API keys?
 
-Explain:
+If the user gives no extra hosts, IPs, exclusions, passive providers, or webhook choices, assume `none for now` and continue with a minimal baseline setup.
 
-- The default scan mode is full TCP on `1-65535`.
-- A full scan can take hours on broader scopes or slower networks.
-- The schedule must be slower than the observed runtime, otherwise runs can overlap and create operational noise.
-- If the user is unsure, start conservatively and tighten later after one measured baseline run.
+Do not ask about:
 
-If using `cron`, prefer a command with absolute paths and a dedicated virtual environment. The README already includes an example in [README.md](README.md#running-from-cron).
+- install location
+- `cron` versus `systemd`, unless the user asked for a different scheduler
+- OS version, unless a command fails and the platform matters
+- whether `nmap` is in `PATH`; check it yourself
+- log location
+- env-file location
+- readiness for a test notification; ask for that only when you are actually about to send it
 
-### 3. Domains to Monitor
+## Recommended Opening Prompt
+
+Use something like this:
+
+> I’ll use the default setup unless you want changes: current checkout, `.venv`, `cron`, project-local logs, secrets in `surface-watch.env`, passive discovery off by default, and notification severity at `medium`. I only need a few decisions from you before I wire it up:
+> 
+> 1. Which root domains should be monitored?
+> 2. Which known public hosts or public IPs should be added because discovery may miss them?
+> 3. Anything under that scope that should be excluded from scanning?
+> 4. How often should scans run? Full `1-65535` scans can take hours, so conservative cadence is safer at first.
+> 5. Which webhook destination should I configure, and do you already have any passive discovery API keys for `DNSDumpster`, `Chaos`, or `OTX`?
+
+Keep the tone compact. Do not expand that into a multi-section interview unless the user explicitly asks for a detailed planning pass.
+
+## Setup Questions That Still Matter
+
+These are the only topics that normally justify questions before setup continues.
+
+### 1. Domains to Monitor
 
 Ask:
 
 - Which root domains should be monitored?
 - Are there additional delegated domains, brand domains, regional domains, or acquisition domains that belong in scope?
-- Are there any domains that are authorized but should still be excluded from routine scanning?
+
+If they do not mention extra domain families, assume only the root domains they named.
 
 Map answers into:
 
 - `scope.domains`
-- `scope.excluded_hosts`
-- `scope.excluded_ips`
 
-### 4. Known Coverage Gaps Beyond Auto-Discovery
+### 2. Known Coverage Gaps Beyond Auto-Discovery
 
 Ask:
 
 - Which externally reachable hosts are known but might not be discovered from normal DNS expansion?
 - Which public IPs should always be scanned even if they are not tied to a current hostname?
-- Are there known third-party hosted assets, CDN origins, VPN gateways, mail gateways, or staging systems that should be explicitly included?
-- Are there additional public network ranges the team cares about? If yes, ask for the exact public IPs or hostnames that should be monitored, because the current config is not CIDR-driven.
+- Are there any exclusions that should be applied from the start?
+- If the user mentions network segments, ask for the exact public IPs or hostnames that should be monitored, because the current config is not CIDR-driven.
 
-Explain:
+If the user gives no additions or exclusions, assume:
+
+- `scope.explicit_hosts: []`
+- `scope.explicit_ips: []`
+- no exclusions
+
+Explain briefly:
 
 - Auto-discovery is incomplete by design.
 - Passive sources are additive, not complete.
-- A good baseline depends on the user explicitly filling coverage gaps.
+- A good baseline depends on the user explicitly filling known coverage gaps.
 
 Map answers into:
 
 - `scope.explicit_hosts`
 - `scope.explicit_ips`
+- `scope.excluded_hosts`
+- `scope.excluded_ips`
 
-### 5. Passive Discovery Services
+### 3. Scan Frequency and Scheduler Safety
 
 Ask:
 
-- Which passive discovery services should be enabled?
-- Does the user already have accounts and API keys for any of them?
-- Do they want to keep passive discovery disabled for now and start with DNS-only discovery?
+- How often should analysis run?
+
+Explain briefly:
+
+- The default scan mode is full TCP on `1-65535`.
+- A full scan can take hours on broader scopes or slower networks.
+- The schedule must be slower than the observed runtime, otherwise runs can overlap.
+
+If the user is unsure, recommend a conservative default first. For example:
+
+- first baseline run: manual
+- recurring schedule after that: daily via `cron`
+
+If using `cron`, prefer a command with absolute paths and a dedicated virtual environment. The README already includes an example in [README.md](README.md#running-from-cron).
+
+### 4. Passive Discovery Services
+
+Ask only if the user wants broader discovery than normal DNS plus explicit hosts and IPs, or if they already mentioned provider accounts.
+
+Ask:
+
+- Which passive discovery services should be enabled, if any?
+- Do they already have API keys for any of them?
+
+If the user is unsure or has no keys, default to:
+
+- passive discovery disabled for now
+- DNS-based discovery plus explicit hosts and IPs only
 
 Current supported providers:
 
@@ -110,7 +170,7 @@ Environment variables used by the example config:
 Agent actions:
 
 1. Ask which providers to enable.
-2. Ask where the API keys should be stored.
+2. If the user has no provider preference or no keys, leave passive discovery disabled.
 3. Enable only the providers the user chose.
 4. Keep `discovery.passive_sources.enabled` aligned with the chosen provider set.
 5. Leave rate-limit-conscious defaults in place unless the user has a reason to change them.
@@ -122,13 +182,12 @@ surface-watch discover --config config.yaml
 
 If discovery returns less than the user expects, ask again for explicit hosts and IPs instead of pretending passive discovery is comprehensive.
 
-### 6. Webhook Notifications
+### 5. Webhook Notifications
 
 Ask:
 
-- Which notification destinations should be enabled: Slack, Microsoft Teams, Discord, or multiple?
-- Which channel or room should receive alerts?
-- Should notifications be enabled only for higher-severity findings at first?
+- Which notification destination should be enabled: Slack, Microsoft Teams, Discord, or none for now?
+- If a destination is selected, which channel or room should receive alerts?
 
 Official setup guides:
 
@@ -151,14 +210,15 @@ Agent actions:
 
 1. Enable only the selected providers in `notifications.providers`.
 2. Keep webhook secrets in environment variables.
-3. Ask the user whether the default severity threshold should stay at `medium`.
+3. Keep the default severity threshold at `medium` unless the user asks for something else.
 4. Test delivery with:
 
 ```bash
 surface-watch test-notification --config config.yaml
 ```
 
-5. Do not continue until the user confirms they saw the test message or explicitly accepts postponing notification validation.
+5. Ask for confirmation only when the test message is actually being sent, not during the initial questionnaire.
+6. Do not continue until the user confirms they saw the test message or explicitly accepts postponing notification validation.
 
 ### 7. First Baselining Scan
 
@@ -220,8 +280,8 @@ If the user does not have a clean explicit-IP-only target for this drill, use on
 
 Use this order unless the user explicitly wants something different:
 
-1. Confirm authorization and environment.
-2. Collect domains, explicit hosts, explicit IPs, exclusions, and scheduling expectations.
+1. Confirm authorization and state the defaults you will use.
+2. Ask the compact first-round questions about domains, known coverage gaps, exclusions, scan cadence, webhooks, and optional passive providers.
 3. Configure passive discovery providers, if any, and test with `discover`.
 4. Configure webhook destinations and test with `test-notification`.
 5. Run the first baseline scan.
