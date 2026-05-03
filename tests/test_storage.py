@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from pathlib import Path
 
+from surface_watch import __version__
 from surface_watch.models import Change, DiscoveredTarget, PortFinding, ScanResult
 from surface_watch.storage import (
     create_scan,
@@ -28,7 +29,7 @@ def test_storage_round_trip(tmp_path: Path) -> None:
         started_at=started_at,
         status="running",
         config_hash="hash-1",
-        tool_version="0.1.0",
+        tool_version=__version__,
     )
     save_discovered_targets(
         database_path,
@@ -99,7 +100,7 @@ def test_storage_round_trip(tmp_path: Path) -> None:
         started_at=started_at,
         status="running",
         config_hash="hash-2",
-        tool_version="0.1.0",
+        tool_version=__version__,
     )
     finish_scan(
         database_path,

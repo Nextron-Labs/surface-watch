@@ -2,9 +2,11 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
+from surface_watch import __version__
 from surface_watch.config import parse_config_data
 from surface_watch.models import Change
 from surface_watch.notify import (
+    _send_to_provider,
     build_notification_message,
     filter_changes_for_notification,
     send_notifications,
@@ -126,3 +128,42 @@ def test_send_notifications_groups_one_message_per_scan(monkeypatch) -> None:
     assert len(sent_messages) == 1
     assert sent_messages[0][0] == "slack"
     assert "Scan: 21" in sent_messages[0][2]
+
+
+def test_send_to_provider_uses_package_version_in_user_agent(monkeypatch) -> None:
+    captured: dict[str, object] = {}
+
+    def fake_request(
+        url: str,
+        data: bytes,
+        headers: dict[str, str],
+        method: str,
+    ) -> object:
+        captured["url"] = url
+        captured["data"] = data
+        captured["headers"] = headers
+        captured["method"] = method
+        return object()
+
+    class FakeResponse:
+        status = 204
+
+        def __enter__(self) -> "FakeResponse":
+            return self
+
+        def __exit__(self, exc_type, exc, traceback) -> bool:
+            return False
+
+    def fake_urlopen(http_request: object, timeout: int) -> FakeResponse:
+        captured["request"] = http_request
+        captured["timeout"] = timeout
+        return FakeResponse()
+
+    monkeypatch.setattr("surface_watch.notify.request.Request", fake_request)
+    monkeypatch.setattr("surface_watch.notify.request.urlopen", fake_urlopen)
+
+    assert _send_to_provider("slack", "https://example.invalid/webhook", "hello") is True
+    assert captured["headers"] == {
+        "Content-Type": "application/json",
+        "User-Agent": f"surface-watch/{__version__}",
+    }

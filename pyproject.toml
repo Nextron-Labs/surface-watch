@@ -17,6 +17,10 @@ dependencies = [
   "dnspython>=2.6.1",
 ]
 
+[project.urls]
+Homepage = "https://github.com/Nextron-Labs/surface-watch"
+Repository = "https://github.com/Nextron-Labs/surface-watch"
+
 [project.optional-dependencies]
 dev = [
   "pytest>=8.0",

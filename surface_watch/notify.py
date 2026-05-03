@@ -8,6 +8,7 @@ from collections.abc import Callable
 from datetime import datetime
 from urllib import error, request
 
+from surface_watch import __version__
 from surface_watch.config import SurfaceWatchConfig, severity_at_least
 from surface_watch.models import Change
 
@@ -173,7 +174,7 @@ def _send_to_provider(provider_name: str, webhook_url: str, message: str) -> boo
         data=body,
         headers={
             "Content-Type": "application/json",
-            "User-Agent": "surface-watch/0.1.0",
+            "User-Agent": f"surface-watch/{__version__}",
         },
         method="POST",
     )
