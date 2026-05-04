@@ -4,7 +4,12 @@ from pathlib import Path
 
 import pytest
 
-from surface_watch.config import compute_config_hash, parse_config_data, write_example_config
+from surface_watch.config import (
+    EXAMPLE_SUBDOMAIN_WORDLIST,
+    compute_config_hash,
+    parse_config_data,
+    write_example_config,
+)
 
 
 def test_parse_config_normalizes_hosts_and_paths(tmp_path: Path) -> None:
@@ -88,3 +93,16 @@ def test_write_example_config_refuses_to_overwrite(tmp_path: Path) -> None:
 
     with pytest.raises(FileExistsError):
         write_example_config(config_path)
+
+
+def test_write_example_config_creates_default_wordlist(tmp_path: Path) -> None:
+    config_path = tmp_path / "config.yaml"
+
+    write_example_config(config_path)
+
+    wordlist_path = tmp_path / "wordlists" / "subdomains-small.txt"
+    assert wordlist_path.read_text(encoding="utf-8") == EXAMPLE_SUBDOMAIN_WORDLIST
+    assert "cpanel" in EXAMPLE_SUBDOMAIN_WORDLIST.splitlines()
+    assert "whm" in EXAMPLE_SUBDOMAIN_WORDLIST.splitlines()
+    assert "webmail" in EXAMPLE_SUBDOMAIN_WORDLIST.splitlines()
+    assert "webdisk" in EXAMPLE_SUBDOMAIN_WORDLIST.splitlines()

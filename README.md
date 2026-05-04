@@ -76,11 +76,15 @@ sudo apt-get install nmap
 ```bash
 surface-watch init
 $EDITOR config.yaml
-surface-watch discover --config config.yaml
-surface-watch scan --config config.yaml
-surface-watch list-scans --config config.yaml
-surface-watch show-changes --config config.yaml --scan-id 2
+surface-watch discover
+surface-watch scan
+surface-watch list-scans
+surface-watch show-changes --scan-id 2
 ```
+
+If your config file is not `./config.yaml`, pass `--config` either before or after the
+subcommand, for example `surface-watch --config /opt/surface-watch/config.yaml list-scans`
+or `surface-watch list-scans --config /opt/surface-watch/config.yaml`.
 
 ## Configuration Example
 
@@ -265,6 +269,16 @@ The database stores:
 - `changes`: detected differences for that run
 
 This makes it possible to compare scans later, inspect previous baselines, and review what changed over time.
+
+Useful inspection commands:
+
+```bash
+surface-watch list-scans --config config.yaml
+surface-watch show-targets --config config.yaml --scan-id 2
+surface-watch show-ports --config config.yaml --host vpn.example.com --scan-id 2
+surface-watch show-scan --config config.yaml --scan-id 2
+surface-watch show-changes --config config.yaml --scan-id 2
+```
 
 ## How Change Detection Works
 
@@ -476,5 +490,8 @@ surface-watch discover --config config.yaml
 surface-watch scan --config config.yaml
 surface-watch diff --config config.yaml --scan-id 2 --previous-scan-id 1
 surface-watch list-scans --config config.yaml
+surface-watch show-targets --config config.yaml --scan-id 2
+surface-watch show-ports --config config.yaml --host vpn.example.com --scan-id 2
+surface-watch show-scan --config config.yaml --scan-id 2
 surface-watch show-changes --config config.yaml --scan-id 2
 ```

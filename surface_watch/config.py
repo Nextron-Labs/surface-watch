@@ -282,6 +282,30 @@ risk_policy:
         - "ssh"
 """
 
+EXAMPLE_SUBDOMAIN_WORDLIST = """# Starter wordlist for optional brute-force subdomain discovery.
+# Keep this list short and bias toward high-signal names.
+www
+api
+app
+admin
+portal
+vpn
+mail
+webmail
+autodiscover
+autoconfig
+smtp
+mx
+remote
+cpanel
+whm
+webdisk
+status
+support
+staging
+dev
+"""
+
 
 @dataclass(slots=True)
 class ProjectConfig:
@@ -646,7 +670,15 @@ def write_example_config(path: Path, overwrite: bool = False) -> Path:
         raise FileExistsError(f"Configuration file already exists: {target_path}")
     target_path.parent.mkdir(parents=True, exist_ok=True)
     target_path.write_text(EXAMPLE_CONFIG_YAML, encoding="utf-8")
+    _write_example_wordlist(target_path.parent / "wordlists" / "subdomains-small.txt", overwrite)
     return target_path
+
+
+def _write_example_wordlist(path: Path, overwrite: bool = False) -> None:
+    if path.exists() and not overwrite:
+        return
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(EXAMPLE_SUBDOMAIN_WORDLIST, encoding="utf-8")
 
 
 def severity_at_least(candidate: str, minimum: str) -> bool:
