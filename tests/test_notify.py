@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime
 
 from surface_watch import __version__
 from surface_watch.config import parse_config_data
 from surface_watch.models import Change
 from surface_watch.notify import (
+    _chunk_message,
     _send_to_provider,
     build_notification_message,
     filter_changes_for_notification,
@@ -167,3 +169,70 @@ def test_send_to_provider_uses_package_version_in_user_agent(monkeypatch) -> Non
         "Content-Type": "application/json",
         "User-Agent": f"surface-watch/{__version__}",
     }
+
+
+def test_chunk_message_splits_long_messages_at_line_boundaries() -> None:
+    lines = ["line"] * 500
+    message = "\n".join(lines)
+    chunks = _chunk_message(message, 2000)
+    assert all(len(chunk) <= 2000 for chunk in chunks)
+    assert "\n".join(chunks) == message
+
+
+def test_send_to_provider_chunks_discord_messages(monkeypatch) -> None:
+    sent: list[dict[str, object]] = []
+
+    def fake_request(url: str, data: bytes, headers: dict[str, str], method: str) -> object:
+        sent.append(json.loads(data))
+        return object()
+
+    class FakeResponse:
+        status = 204
+
+        def __enter__(self) -> "FakeResponse":
+            return self
+
+        def __exit__(self, exc_type, exc, traceback) -> bool:
+            return False
+
+    def fake_urlopen(http_request: object, timeout: int) -> FakeResponse:
+        return FakeResponse()
+
+    monkeypatch.setattr("surface_watch.notify.request.Request", fake_request)
+    monkeypatch.setattr("surface_watch.notify.request.urlopen", fake_urlopen)
+
+    long_message = "x" * 2500
+    assert _send_to_provider("discord", "https://example.invalid/webhook", long_message) is True
+    assert len(sent) == 2
+    assert len(sent[0]["content"]) <= 2000
+    assert len(sent[1]["content"]) <= 2000
+
+
+def test_send_to_provider_logs_http_error_body(monkeypatch) -> None:
+    import logging
+
+    logged: list[str] = []
+
+    class FakeHTTPError(Exception):
+        code = 400
+
+        def read(self) -> bytes:
+            return b'{"message": "Invalid webhook"}'
+
+    def fake_urlopen(http_request: object, timeout: int) -> None:
+        raise FakeHTTPError()
+
+    monkeypatch.setattr("surface_watch.notify.request.urlopen", fake_urlopen)
+    monkeypatch.setattr(
+        "surface_watch.notify.error.HTTPError", FakeHTTPError, raising=False
+    )
+
+    original_error = logging.getLogger("surface_watch.notify").error
+
+    def capture_error(msg: str, *args: object) -> None:
+        logged.append(msg % args)
+
+    monkeypatch.setattr(logging.getLogger("surface_watch.notify"), "error", capture_error)
+
+    _send_to_provider("discord", "https://example.invalid/webhook", "test")
+    assert any("Invalid webhook" in entry for entry in logged)

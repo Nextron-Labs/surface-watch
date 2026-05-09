@@ -219,7 +219,17 @@ def _can_use_syn_scan() -> bool:
     if platform.system() not in {"Linux", "Darwin"}:
         return False
     geteuid = getattr(os, "geteuid", None)
-    return callable(geteuid) and geteuid() == 0
+    if callable(geteuid) and geteuid() == 0:
+        return True
+    # Check for CAP_NET_RAW by attempting to create a raw socket
+    try:
+        import socket
+
+        sock = socket.socket(socket.AF_INET, socket.SOCK_RAW, socket.IPPROTO_TCP)
+        sock.close()
+        return True
+    except (OSError, PermissionError):
+        return False
 
 
 def _parse_confidence(value: str | None) -> int | None:
@@ -251,7 +261,7 @@ def _classify_scan_result(
             ),
         )
 
-    if _likely_hit_host_timeout(elapsed_seconds, host_timeout):
+    if _likely_hit_host_timeout(elapsed_seconds, host_timeout) or _stderr_indicates_host_timeout(stderr):
         if open_ports:
             return (
                 "partial",
@@ -283,6 +293,18 @@ def _stderr_indicates_invalid_target(stderr: str) -> bool:
             "no targets were specified",
             "looks like an ipv6 target specification",
             "you have to use the -6 option",
+        )
+    )
+
+
+def _stderr_indicates_host_timeout(stderr: str) -> bool:
+    normalized = stderr.lower()
+    return any(
+        pattern in normalized
+        for pattern in (
+            "host timeout",
+            "timed out",
+            "retransmission cap hit",
         )
     )
 

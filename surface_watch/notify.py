@@ -167,6 +167,17 @@ def _build_summary(changes: list[Change]) -> list[tuple[str, int]]:
 
 
 def _send_to_provider(provider_name: str, webhook_url: str, message: str) -> bool:
+    if provider_name == "discord" and len(message) > 2000:
+        chunks = _chunk_message(message, 2000)
+        all_ok = True
+        for chunk in chunks:
+            if not _send_single_payload(provider_name, webhook_url, chunk):
+                all_ok = False
+        return all_ok
+    return _send_single_payload(provider_name, webhook_url, message)
+
+
+def _send_single_payload(provider_name: str, webhook_url: str, message: str) -> bool:
     payload = _payload_for_provider(provider_name, message)
     body = json.dumps(payload).encode("utf-8")
     http_request = request.Request(
@@ -187,12 +198,48 @@ def _send_to_provider(provider_name: str, webhook_url: str, message: str) -> boo
                 "Notification via %s returned HTTP status %s.", provider_name, response.status
             )
     except error.HTTPError as exc:
-        LOGGER.error("Notification via %s failed with HTTP error %s.", provider_name, exc.code)
+        body_text = ""
+        try:
+            body_text = exc.read().decode("utf-8", errors="replace")[:500]
+        except Exception:
+            pass
+        LOGGER.error(
+            "Notification via %s failed with HTTP error %s. Response: %s",
+            provider_name,
+            exc.code,
+            body_text or "(no body)",
+        )
     except error.URLError as exc:
         LOGGER.error("Notification via %s failed: %s", provider_name, exc.reason)
     except OSError as exc:
         LOGGER.error("Notification via %s failed: %s", provider_name, exc)
     return False
+
+
+def _chunk_message(message: str, limit: int) -> list[str]:
+    if len(message) <= limit:
+        return [message]
+    chunks: list[str] = []
+    lines = message.split("\n")
+    current = ""
+    for line in lines:
+        # Split any overly long line into limit-sized pieces
+        line_pieces: list[str] = []
+        while len(line) > limit:
+            line_pieces.append(line[:limit])
+            line = line[limit:]
+        if line:
+            line_pieces.append(line)
+
+        for piece in line_pieces:
+            if len(current) + len(piece) + 1 > limit and current:
+                chunks.append(current)
+                current = piece
+            else:
+                current = f"{current}\n{piece}" if current else piece
+    if current:
+        chunks.append(current)
+    return chunks
 
 
 def _payload_for_provider(provider_name: str, message: str) -> dict[str, object]:
