@@ -108,7 +108,11 @@ def build_nmap_command(nmap_binary: str, config: SurfaceWatchConfig, target: str
     if config.scanning.scan_mode != "full_tcp":
         raise ValueError(f"Unsupported scan mode for v1: {config.scanning.scan_mode}")
 
-    command = [nmap_binary]
+    if not _can_use_syn_scan(nmap_binary) and _nmap_sudo_works(nmap_binary):
+        command = ["sudo", nmap_binary]
+    else:
+        command = [nmap_binary]
+
     if _is_ipv6_target(target):
         command.append("-6")
 
@@ -118,8 +122,9 @@ def build_nmap_command(nmap_binary: str, config: SurfaceWatchConfig, target: str
             default_args.append(flag)
     command.extend(default_args)
 
-    command.append("-sS" if _can_use_syn_scan() else "-sT")
-    command.extend(["-p", config.scanning.ports.tcp])
+    command.append("-sS" if _can_use_syn_scan(nmap_binary) or _nmap_sudo_works(nmap_binary) else "-sT")
+    if config.scanning.ports.tcp:
+        command.extend(["-p", config.scanning.ports.tcp])
     command.extend(["--max-retries", str(config.scanning.timing.max_retries)])
     command.extend(["--host-timeout", config.scanning.timing.host_timeout])
     command.append(_normalize_timing_template(config.scanning.timing.template))
@@ -215,11 +220,42 @@ def _normalize_timing_template(value: str) -> str:
     return f"-T{normalized}"
 
 
-def _can_use_syn_scan() -> bool:
+def _can_use_syn_scan(nmap_binary: str | None = None) -> bool:
     if platform.system() not in {"Linux", "Darwin"}:
         return False
     geteuid = getattr(os, "geteuid", None)
-    return callable(geteuid) and geteuid() == 0
+    if callable(geteuid) and geteuid() == 0:
+        return True
+    # File capabilities on nmap are NOT sufficient — nmap enforces root check itself
+    # Fall back to testing the current process (e.g. inside a container with caps)
+    try:
+        import socket
+
+        sock = socket.socket(socket.AF_INET, socket.SOCK_RAW, socket.IPPROTO_TCP)
+        sock.close()
+        return True
+    except (OSError, PermissionError):
+        return False
+
+
+def _nmap_sudo_works(nmap_binary: str | None = None) -> bool:
+    """Check if sudo nmap works (passwordless and nmap binary has raw socket caps)."""
+    if platform.system() not in {"Linux", "Darwin"}:
+        return False
+    # Verify sudo exists and passwordless nmap is allowed
+    try:
+        result = subprocess.run(
+            ["sudo", "-n", nmap_binary or "nmap", "--version"],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=10,
+        )
+        if result.returncode != 0 or "password" in (result.stderr or "").lower():
+            return False
+    except (OSError, FileNotFoundError, subprocess.TimeoutExpired):
+        return False
+    return True
 
 
 def _parse_confidence(value: str | None) -> int | None:
@@ -251,7 +287,7 @@ def _classify_scan_result(
             ),
         )
 
-    if _likely_hit_host_timeout(elapsed_seconds, host_timeout):
+    if _likely_hit_host_timeout(elapsed_seconds, host_timeout) or _stderr_indicates_host_timeout(stderr):
         if open_ports:
             return (
                 "partial",
@@ -283,6 +319,18 @@ def _stderr_indicates_invalid_target(stderr: str) -> bool:
             "no targets were specified",
             "looks like an ipv6 target specification",
             "you have to use the -6 option",
+        )
+    )
+
+
+def _stderr_indicates_host_timeout(stderr: str) -> bool:
+    normalized = stderr.lower()
+    return any(
+        pattern in normalized
+        for pattern in (
+            "host timeout",
+            "timed out",
+            "retransmission cap hit",
         )
     )
 
